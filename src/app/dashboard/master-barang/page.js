@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import * as XLSX from "xlsx";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,10 +8,11 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { items as allItems, categories, units, getCategoryName, formatCurrency, searchItems } from "@/lib/data";
+import { api, units, formatCurrency } from "@/lib/data";
 
 export default function MasterBarangPage() {
-  const [itemsList, setItemsList] = useState(allItems.filter(i => i.isActive));
+  const [itemsList, setItemsList] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState("all");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -18,11 +20,39 @@ export default function MasterBarangPage() {
   const [editItem, setEditItem] = useState(null);
   const [form, setForm] = useState({ name: "", alias: "", categoryId: "1", unit: "Pcs", buyPrice: "", sellPrice: "", minStock: "2", currentStock: "0" });
   const [toast, setToast] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // Import states
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importData, setImportData] = useState([]);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    loadData();
+  }, [catFilter]);
+
+  async function loadData() {
+    setLoading(true);
+    try {
+      const [it, ct] = await Promise.all([
+        api.items.list(catFilter !== "all" ? { category: catFilter } : {}),
+        api.categories.list()
+      ]);
+      setItemsList(it || []);
+      if (categories.length === 0) setCategories(ct || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const showToast = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
 
+  const getCategoryName = (id) => categories.find(c => c.id === id)?.name || "Lainnya";
+
   const filtered = itemsList.filter(i => {
-    if (catFilter !== "all" && i.categoryId !== parseInt(catFilter)) return false;
     if (search.length >= 2) {
       const q = search.toLowerCase();
       return i.name.toLowerCase().includes(q) || (i.alias || "").toLowerCase().includes(q) || i.sku.toLowerCase().includes(q);
@@ -32,7 +62,7 @@ export default function MasterBarangPage() {
 
   const openAdd = () => {
     setEditItem(null);
-    setForm({ name: "", alias: "", categoryId: "1", unit: "Pcs", buyPrice: "", sellPrice: "", minStock: "2", currentStock: "0" });
+    setForm({ name: "", alias: "", categoryId: categories[0]?.id.toString() || "1", unit: "Pcs", buyPrice: "", sellPrice: "", minStock: "2", currentStock: "0" });
     setDialogOpen(true);
   };
 
@@ -42,24 +72,86 @@ export default function MasterBarangPage() {
     setDialogOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.name || !form.buyPrice || !form.sellPrice) return;
-    if (editItem) {
-      setItemsList(prev => prev.map(i => i.id === editItem.id ? { ...i, name: form.name, alias: form.alias, categoryId: parseInt(form.categoryId), unit: form.unit, buyPrice: parseInt(form.buyPrice), sellPrice: parseInt(form.sellPrice), minStock: parseInt(form.minStock), currentStock: parseInt(form.currentStock) } : i));
-      showToast("Barang berhasil diperbarui!");
-    } else {
-      const catCode = { 1: "OLI", 2: "FLT", 3: "BSI", 4: "BAN", 5: "SPR", 6: "AKS", 7: "LNY" };
-      const newItem = { id: Date.now(), sku: `SMG-${catCode[form.categoryId] || "LNY"}-${String(itemsList.length + 1).padStart(4, "0")}`, name: form.name, alias: form.alias, categoryId: parseInt(form.categoryId), unit: form.unit, buyPrice: parseInt(form.buyPrice), sellPrice: parseInt(form.sellPrice), minStock: parseInt(form.minStock), currentStock: parseInt(form.currentStock), isActive: true, photoUrl: null };
-      setItemsList(prev => [...prev, newItem]);
-      showToast("Barang baru berhasil ditambahkan!");
+    try {
+      if (editItem) {
+        await api.items.update(editItem.id, form);
+        showToast("Barang berhasil diperbarui!");
+      } else {
+        await api.items.create(form);
+        showToast("Barang baru berhasil ditambahkan!");
+      }
+      setDialogOpen(false);
+      loadData();
+      window.dispatchEvent(new Event("smg:stock_updated"));
+    } catch (err) {
+      showToast(err.message, "warning");
     }
-    setDialogOpen(false);
   };
 
-  const handleDelete = () => {
-    setItemsList(prev => prev.filter(i => i.id !== deleteDialog.id));
-    setDeleteDialog(null);
-    showToast("Barang berhasil dinonaktifkan!", "warning");
+  const handleDelete = async () => {
+    try {
+      await api.items.delete(deleteDialog.id);
+      setDeleteDialog(null);
+      showToast("Barang berhasil dinonaktifkan!", "warning");
+      loadData();
+      window.dispatchEvent(new Event("smg:stock_updated"));
+    } catch (err) {
+      showToast(err.message, "warning");
+    }
+  };
+
+  const handleDownloadTemplate = () => {
+    const ws = XLSX.utils.json_to_sheet([
+      { name: "Oli Mesin Matic", alias: "Oli Matic", categoryName: "Oli", unit: "Pcs", buyPrice: 40000, sellPrice: 50000, minStock: 5, currentStock: 20 }
+    ]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Template_Barang");
+    XLSX.writeFile(wb, "Template_Import_Barang.xlsx");
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target.result;
+        const wb = XLSX.read(bstr, { type: "binary" });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+        
+        if (data.length > 0) {
+          setImportData(data);
+        } else {
+          showToast("File Excel kosong", "warning");
+        }
+      } catch (err) {
+        showToast("Gagal membaca file Excel", "warning");
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleImportSubmit = async () => {
+    if (importData.length === 0) return;
+    setImporting(true);
+    try {
+      const res = await api.items.import(importData);
+      showToast(`Berhasil mengimport ${res.count} barang!`);
+      setImportDialogOpen(false);
+      setImportData([]);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      loadData();
+      window.dispatchEvent(new Event("smg:stock_updated"));
+    } catch (err) {
+      showToast(err.message, "warning");
+    } finally {
+      setImporting(false);
+    }
   };
 
   return (
@@ -77,7 +169,7 @@ export default function MasterBarangPage() {
           <p className="text-sm text-muted-foreground">{itemsList.length} barang terdaftar</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="gap-2 cursor-pointer">
+          <Button variant="outline" size="sm" className="gap-2 cursor-pointer" onClick={() => setImportDialogOpen(true)}>
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
             Import Excel
           </Button>
@@ -118,7 +210,9 @@ export default function MasterBarangPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(item => (
+                {loading ? (
+                  <tr><td colSpan="8" className="text-center py-8"><div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div></td></tr>
+                ) : filtered.map(item => (
                   <tr key={item.id} className={`border-b border-border/30 transition-colors ${item.currentStock <= item.minStock ? "bg-destructive/5" : "hover:bg-accent/50"}`}>
                     <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">{item.sku}</td>
                     <td className="px-4 py-2.5">
@@ -146,10 +240,12 @@ export default function MasterBarangPage() {
                     </td>
                   </tr>
                 ))}
+                {!loading && filtered.length === 0 && (
+                  <tr><td colSpan="8" className="text-center py-8 text-muted-foreground">Tidak ada barang ditemukan</td></tr>
+                )}
               </tbody>
             </table>
           </div>
-          {filtered.length === 0 && <p className="text-center py-8 text-muted-foreground">Tidak ada barang ditemukan</p>}
         </CardContent>
       </Card>
 
@@ -224,6 +320,48 @@ export default function MasterBarangPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteDialog(null)} className="cursor-pointer">Batal</Button>
             <Button variant="destructive" onClick={handleDelete} className="cursor-pointer">Nonaktifkan</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Import Dialog */}
+      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Import Excel Master Barang</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-3">
+            <div className="bg-accent/30 p-3 rounded-lg border border-border/50 text-sm">
+              <p className="font-medium mb-1">Langkah-langkah:</p>
+              <ol className="list-decimal pl-4 space-y-1 text-muted-foreground">
+                <li>Download template Excel.</li>
+                <li>Isi data barang sesuai format template. <br/>(Kolom: <strong>name, alias, categoryName, unit, buyPrice, sellPrice, minStock, currentStock</strong>)</li>
+                <li>Upload kembali file yang sudah diisi.</li>
+              </ol>
+            </div>
+            
+            <Button variant="outline" className="w-full cursor-pointer" onClick={handleDownloadTemplate}>
+              <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+              Download Template Excel
+            </Button>
+
+            <div className="grid gap-2 mt-4">
+              <Label>Upload File Excel (.xlsx)</Label>
+              <Input type="file" accept=".xlsx, .xls" onChange={handleFileUpload} ref={fileInputRef} className="cursor-pointer" />
+            </div>
+
+            {importData.length > 0 && (
+              <div className="p-3 bg-primary/10 text-primary border border-primary/20 rounded-lg text-sm flex items-center justify-between">
+                <span>Ditemukan <strong>{importData.length}</strong> barang siap import.</span>
+                <Button size="sm" variant="ghost" onClick={() => { setImportData([]); if(fileInputRef.current) fileInputRef.current.value = ""; }} className="h-6 px-2 text-xs cursor-pointer">Reset</Button>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setImportDialogOpen(false); setImportData([]); if(fileInputRef.current) fileInputRef.current.value = ""; }} className="cursor-pointer" disabled={importing}>Batal</Button>
+            <Button onClick={handleImportSubmit} className="cursor-pointer" disabled={importing || importData.length === 0}>
+              {importing ? "Mengimport..." : "Import Data"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

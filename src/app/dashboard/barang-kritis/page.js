@@ -1,14 +1,38 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { items, categories, getCategoryName, formatCurrency } from "@/lib/data";
+import { api } from "@/lib/data";
 
 export default function BarangKritisPage() {
   const [catFilter, setCatFilter] = useState("all");
   const [sortCol, setSortCol] = useState("deficit");
   const [sortDir, setSortDir] = useState("desc");
+  const [items, setItems] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadData() {
+      setLoading(true);
+      try {
+        const [it, ct] = await Promise.all([
+          api.items.list(),
+          api.categories.list()
+        ]);
+        setItems(it || []);
+        if (categories.length === 0) setCategories(ct || []);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
+
+  const getCategoryName = (id) => categories.find(c => c.id === id)?.name || "Lainnya";
 
   const kritisItems = items.filter(i => i.isActive && i.currentStock <= i.minStock * 2).map(i => ({ ...i, deficit: i.minStock - i.currentStock, isCritical: i.currentStock <= i.minStock }));
 
@@ -82,7 +106,9 @@ export default function BarangKritisPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(item => (
+                {loading ? (
+                  <tr><td colSpan="6" className="text-center py-8"><div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div></td></tr>
+                ) : filtered.map(item => (
                   <tr key={item.id} className={`border-b border-border/30 transition-colors ${item.isCritical ? "bg-destructive/8" : "bg-warning/5"}`}>
                     <td className="px-4 py-3">
                       <p className="font-medium">{item.name}</p>
@@ -102,7 +128,7 @@ export default function BarangKritisPage() {
               </tbody>
             </table>
           </div>
-          {filtered.length === 0 && <p className="text-center py-8 text-muted-foreground">✅ Tidak ada barang kritis saat ini</p>}
+          {!loading && filtered.length === 0 && <p className="text-center py-8 text-muted-foreground">✅ Tidak ada barang kritis saat ini</p>}
         </CardContent>
       </Card>
     </div>

@@ -15,22 +15,30 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     setError("");
     setLoading(true);
-    setTimeout(() => {
-      if ((username === "hawari" || username === "mufalah") && password === "admin123") {
-        localStorage.setItem("smg_user", JSON.stringify({ username, role: "admin", name: username === "hawari" ? "Hawari" : "Mufalah" }));
-        router.push("/dashboard");
-      } else if ((username === "andi" || username === "budi") && password === "staff123") {
-        localStorage.setItem("smg_user", JSON.stringify({ username, role: "staff", name: username === "andi" ? "Andi Prasetyo" : "Budi Santoso" }));
-        router.push("/dashboard");
-      } else {
-        setError("Username atau password salah!");
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      
+      if (!res.ok) {
+        setError(data.error || "Login gagal");
         setLoading(false);
+        return;
       }
-    }, 800);
+      
+      localStorage.setItem("smg_user", JSON.stringify(data.user));
+      router.push("/dashboard");
+    } catch (err) {
+      setError("Tidak dapat terhubung ke server");
+      setLoading(false);
+    }
   };
 
   const { theme, toggleTheme } = useTheme();

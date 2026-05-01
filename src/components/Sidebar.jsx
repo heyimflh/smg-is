@@ -5,7 +5,7 @@ import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { getLowStockItems } from "@/lib/data";
+import { api } from "@/lib/data";
 import { useTheme } from "@/components/ThemeProvider";
 
 const navItems = [
@@ -15,6 +15,7 @@ const navItems = [
   { href: "/dashboard/master-barang", label: "Master Barang", icon: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" },
   { href: "/dashboard/barang-kritis", label: "Barang Kritis", icon: "M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z", badge: true },
   { href: "/dashboard/koreksi-stok", label: "Koreksi Stok", icon: "M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z", adminOnly: true },
+  { href: "/dashboard/laporan", label: "Laporan & Grafik", icon: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z", adminOnly: true },
   { href: "/dashboard/manajemen-user", label: "Manajemen User", icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z", adminOnly: true },
 ];
 
@@ -23,15 +24,55 @@ export default function Sidebar() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [user, setUser] = useState(null);
-  const lowCount = getLowStockItems().length;
+  const [lowCount, setLowCount] = useState(0);
   const { theme, toggleTheme } = useTheme();
 
   useEffect(() => {
-    const u = localStorage.getItem("smg_user");
-    if (u) setUser(JSON.parse(u));
-  }, []);
+    async function initUser() {
+      // Load user
+      const u = localStorage.getItem("smg_user");
+      if (u) {
+        setUser(JSON.parse(u));
+      } else {
+        try {
+          const authUser = await api.auth.me();
+          if (authUser) {
+            setUser(authUser);
+            localStorage.setItem("smg_user", JSON.stringify(authUser));
+          } else {
+            router.push("/");
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    }
 
-  const handleLogout = () => {
+    async function loadStats() {
+      try {
+        const stats = await api.dashboard.stats();
+        if (stats) setLowCount(stats.lowStockCount);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    initUser();
+    loadStats();
+
+    // Listen for custom event to update stock instantly
+    const handleStockUpdate = () => loadStats();
+    window.addEventListener("smg:stock_updated", handleStockUpdate);
+
+    return () => window.removeEventListener("smg:stock_updated", handleStockUpdate);
+  }, [router, pathname]);
+
+  const handleLogout = async () => {
+    try {
+      await api.auth.logout();
+    } catch (e) {
+      console.error(e);
+    }
     localStorage.removeItem("smg_user");
     router.push("/");
   };
@@ -76,7 +117,7 @@ export default function Sidebar() {
       <div className="p-4">
         <div className="flex items-center gap-3 mb-3">
           <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm">
-            {user?.name?.charAt(0) || "?"}
+            {user?.name?.charAt(0)?.toUpperCase() || "?"}
           </div>
           <div className="min-w-0">
             <p className="text-sm font-medium truncate">{user?.name || "User"}</p>

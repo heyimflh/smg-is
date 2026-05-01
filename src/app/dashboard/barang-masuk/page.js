@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { searchItems, getCategoryName, formatCurrency } from "@/lib/data";
+import { api, formatCurrency } from "@/lib/data";
 
 export default function BarangMasukPage() {
   const [refNumber, setRefNumber] = useState("");
@@ -17,11 +17,25 @@ export default function BarangMasukPage() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [preview, setPreview] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const inputRef = useRef(null);
 
   useEffect(() => {
-    if (query.length >= 2) { setSuggestions(searchItems(query)); setShowSuggestions(true); }
-    else { setSuggestions([]); setShowSuggestions(false); }
+    const fetchSuggestions = async () => {
+      if (query.length >= 2) {
+        const results = await api.items.search(query);
+        setSuggestions(results || []);
+        setShowSuggestions(true);
+      } else {
+        setSuggestions([]);
+        setShowSuggestions(false);
+      }
+    };
+    
+    // Add debounce
+    const timeoutId = setTimeout(() => fetchSuggestions(), 300);
+    return () => clearTimeout(timeoutId);
   }, [query]);
 
   const addItem = (item) => {
@@ -38,10 +52,30 @@ export default function BarangMasukPage() {
 
   const totalValue = txItems.reduce((sum, ti) => sum + ti.qty * ti.price, 0);
 
-  const handleSubmit = () => {
-    setPreview(false);
-    setSuccess(true);
-    setTimeout(() => { setSuccess(false); setTxItems([]); setRefNumber(""); setNotes(""); }, 3000);
+  const handleSubmit = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await api.transactions.create({
+        type: "IN",
+        refNumber,
+        notes,
+        items: txItems.map(ti => ({
+          itemId: ti.itemId,
+          qty: ti.qty,
+          priceAtTime: ti.price
+        }))
+      });
+      
+      setPreview(false);
+      setSuccess(true);
+      window.dispatchEvent(new Event("smg:stock_updated"));
+      setTimeout(() => { setSuccess(false); setTxItems([]); setRefNumber(""); setNotes(""); }, 3000);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -51,6 +85,13 @@ export default function BarangMasukPage() {
         <div className="fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-xl border bg-success/15 border-success/30 text-success text-sm font-medium animate-in slide-in-from-right flex items-center gap-2">
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
           Transaksi barang masuk berhasil disimpan!
+        </div>
+      )}
+      
+      {error && (
+        <div className="fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-xl border bg-destructive/15 border-destructive/30 text-destructive text-sm font-medium animate-in slide-in-from-right flex items-center gap-2">
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          Gagal: {error}
         </div>
       )}
 
@@ -91,7 +132,7 @@ export default function BarangMasukPage() {
                   <button key={item.id} onClick={() => addItem(item)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-accent transition-colors cursor-pointer text-left border-b border-border/30 last:border-0">
                     <div>
                       <p className="font-medium text-sm">{item.name}</p>
-                      <p className="text-xs text-muted-foreground">{item.sku} • {getCategoryName(item.categoryId)}</p>
+                      <p className="text-xs text-muted-foreground">{item.sku} • {item.category?.name || 'Lainnya'}</p>
                     </div>
                     <div className="text-right">
                       <Badge variant={item.currentStock <= item.minStock ? "destructive" : "secondary"} className="text-xs">
@@ -166,8 +207,10 @@ export default function BarangMasukPage() {
               <span>Total</span><span className="text-primary">{formatCurrency(totalValue)}</span>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" className="flex-1 cursor-pointer" onClick={() => setPreview(false)}>Kembali</Button>
-              <Button className="flex-1 cursor-pointer" onClick={handleSubmit}>Konfirmasi Simpan</Button>
+              <Button variant="outline" className="flex-1 cursor-pointer" onClick={() => setPreview(false)} disabled={loading}>Kembali</Button>
+              <Button className="flex-1 cursor-pointer" onClick={handleSubmit} disabled={loading}>
+                {loading ? "Menyimpan..." : "Konfirmasi Simpan"}
+              </Button>
             </div>
           </div>
         </div>

@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { searchItems, adjustReasons, formatDate } from "@/lib/data";
+import { api, adjustReasons, formatDate } from "@/lib/data";
 
 export default function KoreksiStokPage() {
   const [selectedItem, setSelectedItem] = useState(null);
@@ -17,14 +17,56 @@ export default function KoreksiStokPage() {
   const [newStock, setNewStock] = useState("");
   const [reason, setReason] = useState("");
   const [success, setSuccess] = useState(false);
-  const [logs, setLogs] = useState([
-    { id: 1, itemName: "Mur Baut Set M8x30", oldStock: 55, newStock: 50, reason: "Salah Hitung", user: "Hawari", date: new Date(Date.now() - 48 * 3600000).toISOString() },
-    { id: 2, itemName: "Oli Castrol Power 1 0.8L", oldStock: 4, newStock: 3, reason: "Rusak", user: "Hawari", date: new Date(Date.now() - 48 * 3600000).toISOString() },
-  ]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [logs, setLogs] = useState([]);
+  const [logsLoading, setLogsLoading] = useState(true);
 
   useEffect(() => {
-    if (query.length >= 2) { setSuggestions(searchItems(query)); setShowSugg(true); }
-    else { setSuggestions([]); setShowSugg(false); }
+    loadLogs();
+  }, []);
+
+  async function loadLogs() {
+    setLogsLoading(true);
+    try {
+      const txs = await api.transactions.list({ type: 'ADJUST' });
+      // Flatten the transaction items to show in the log
+      const formattedLogs = [];
+      txs.forEach(tx => {
+        tx.items.forEach(item => {
+          formattedLogs.push({
+            id: `${tx.id}-${item.id}`,
+            itemName: item.item?.name || 'Unknown Item',
+            oldStock: '?', // We only have the difference in qty for adjustments in this schema design, not the historical stock before adj. Wait, we can calculate it or just hide it. Let's show difference instead of old/new stock.
+            stockChange: item.qty,
+            reason: tx.notes || item.description || '-',
+            user: tx.user?.name || 'System',
+            date: tx.createdAt
+          });
+        });
+      });
+      setLogs(formattedLogs);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLogsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    const fetchSuggestions = async () => {
+      if (query.length >= 2) {
+        const results = await api.items.search(query);
+        setSuggestions(results || []);
+        setShowSugg(true);
+      } else {
+        setSuggestions([]);
+        setShowSugg(false);
+      }
+    };
+    
+    const timeoutId = setTimeout(() => fetchSuggestions(), 300);
+    return () => clearTimeout(timeoutId);
   }, [query]);
 
   const selectItem = (item) => {
@@ -33,15 +75,34 @@ export default function KoreksiStokPage() {
     setQuery(""); setShowSugg(false);
   };
 
-  const handleSubmit = () => {
-    if (!selectedItem || !reason || newStock === "") return;
-    const log = { id: Date.now(), itemName: selectedItem.name, oldStock: selectedItem.currentStock, newStock: parseInt(newStock), reason, user: "Hawari", date: new Date().toISOString() };
-    setLogs(prev => [log, ...prev]);
-    setSuccess(true); setSelectedItem(null); setNewStock(""); setReason("");
-    setTimeout(() => setSuccess(false), 3000);
-  };
-
   const diff = selectedItem ? parseInt(newStock || 0) - selectedItem.currentStock : 0;
+
+  const handleSubmit = async () => {
+    if (!selectedItem || !reason || newStock === "") return;
+    setLoading(true);
+    setError(null);
+    try {
+      await api.transactions.create({
+        type: "ADJUST",
+        notes: reason,
+        items: [{
+          itemId: selectedItem.id,
+          qty: diff, // The backend will increment stock by this qty (which can be negative)
+          priceAtTime: selectedItem.buyPrice,
+          description: reason
+        }]
+      });
+      
+      setSuccess(true); setSelectedItem(null); setNewStock(""); setReason("");
+      loadLogs();
+      window.dispatchEvent(new Event("smg:stock_updated"));
+      setTimeout(() => setSuccess(false), 3000);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -49,6 +110,13 @@ export default function KoreksiStokPage() {
         <div className="fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-xl border bg-success/15 border-success/30 text-success text-sm font-medium animate-in slide-in-from-right flex items-center gap-2">
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
           Koreksi stok berhasil disimpan!
+        </div>
+      )}
+
+      {error && (
+        <div className="fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-xl border bg-destructive/15 border-destructive/30 text-destructive text-sm font-medium animate-in slide-in-from-right flex items-center gap-2">
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          Gagal: {error}
         </div>
       )}
 
@@ -66,7 +134,7 @@ export default function KoreksiStokPage() {
         <CardContent className="overflow-visible">
           <div className="relative">
             <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-            <Input value={query} onChange={e => setQuery(e.target.value)} placeholder="Cari barang yang akan dikoreksi..." className="pl-10" />
+            <Input value={query} onChange={e => setQuery(e.target.value)} onFocus={() => query.length >= 2 && setShowSugg(true)} placeholder="Cari barang yang akan dikoreksi..." className="pl-10" />
             {showSugg && suggestions.length > 0 && (
               <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-xl z-20 max-h-60 overflow-y-auto">
                 {suggestions.map(item => (
@@ -107,7 +175,9 @@ export default function KoreksiStokPage() {
                 </Select>
               </div>
             </div>
-            <Button className="w-full h-11 cursor-pointer" disabled={!reason || newStock === ""} onClick={handleSubmit}>Simpan Koreksi</Button>
+            <Button className="w-full h-11 cursor-pointer" disabled={!reason || newStock === "" || loading} onClick={handleSubmit}>
+              {loading ? "Menyimpan..." : "Simpan Koreksi"}
+            </Button>
           </CardContent>
         </Card>
       )}
@@ -121,24 +191,29 @@ export default function KoreksiStokPage() {
               <thead>
                 <tr className="border-b border-border/50 text-muted-foreground bg-accent/30">
                   <th className="px-4 py-3 text-left font-medium">Barang</th>
-                  <th className="px-4 py-3 text-center font-medium">Lama</th>
-                  <th className="px-4 py-3 text-center font-medium">Baru</th>
+                  <th className="px-4 py-3 text-center font-medium">Perubahan</th>
                   <th className="px-4 py-3 text-left font-medium">Alasan</th>
                   <th className="px-4 py-3 text-left font-medium hidden md:table-cell">User</th>
                   <th className="px-4 py-3 text-left font-medium hidden md:table-cell">Waktu</th>
                 </tr>
               </thead>
               <tbody>
-                {logs.map(log => (
+                {logsLoading ? (
+                  <tr><td colSpan="5" className="text-center py-8"><div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div></td></tr>
+                ) : logs.map(log => (
                   <tr key={log.id} className="border-b border-border/30 hover:bg-accent/50">
                     <td className="px-4 py-2.5 font-medium">{log.itemName}</td>
-                    <td className="px-4 py-2.5 text-center">{log.oldStock}</td>
-                    <td className="px-4 py-2.5 text-center font-semibold">{log.newStock}</td>
+                    <td className={`px-4 py-2.5 text-center font-semibold ${log.stockChange > 0 ? 'text-success' : log.stockChange < 0 ? 'text-destructive' : ''}`}>
+                      {log.stockChange > 0 ? `+${log.stockChange}` : log.stockChange}
+                    </td>
                     <td className="px-4 py-2.5"><Badge variant="secondary" className="text-xs">{log.reason}</Badge></td>
                     <td className="px-4 py-2.5 hidden md:table-cell text-muted-foreground">{log.user}</td>
                     <td className="px-4 py-2.5 hidden md:table-cell text-muted-foreground text-xs">{formatDate(log.date)}</td>
                   </tr>
                 ))}
+                {!logsLoading && logs.length === 0 && (
+                  <tr><td colSpan="5" className="text-center py-8 text-muted-foreground">Belum ada riwayat koreksi stok</td></tr>
+                )}
               </tbody>
             </table>
           </div>

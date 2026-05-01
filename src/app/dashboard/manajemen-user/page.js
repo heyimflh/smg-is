@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,16 +7,33 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { users as initialUsers } from "@/lib/data";
+import { api } from "@/lib/data";
 
 export default function ManajemenUserPage() {
-  const [userList, setUserList] = useState(initialUsers);
+  const [userList, setUserList] = useState([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editUser, setEditUser] = useState(null);
   const [form, setForm] = useState({ name: "", username: "", role: "staff", password: "" });
   const [toast, setToast] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  async function loadUsers() {
+    setLoading(true);
+    try {
+      const users = await api.users.list();
+      setUserList(users || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const showToast = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
 
   const openAdd = () => {
     setEditUser(null);
@@ -30,31 +47,47 @@ export default function ManajemenUserPage() {
     setDialogOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.name || !form.username) return;
-    if (editUser) {
-      setUserList(prev => prev.map(u => u.id === editUser.id ? { ...u, name: form.name, username: form.username, role: form.role } : u));
-      showToast("User berhasil diperbarui!");
-    } else {
-      setUserList(prev => [...prev, { id: Date.now(), name: form.name, username: form.username, role: form.role, isActive: true }]);
-      showToast("User baru berhasil ditambahkan!");
+    try {
+      if (editUser) {
+        await api.users.update(editUser.id, {
+          name: form.name,
+          username: form.username,
+          role: form.role,
+          ...(form.password ? { password: form.password } : {})
+        });
+        showToast("User berhasil diperbarui!");
+      } else {
+        await api.users.create({
+          name: form.name,
+          username: form.username,
+          role: form.role,
+          password: form.password
+        });
+        showToast("User baru berhasil ditambahkan!");
+      }
+      setDialogOpen(false);
+      loadUsers();
+    } catch (err) {
+      showToast(err.message, "warning");
     }
-    setDialogOpen(false);
   };
 
-  const toggleActive = (userId) => {
-    setUserList(prev => prev.map(u => u.id === userId ? { ...u, isActive: !u.isActive } : u));
-  };
-
-  const resetPassword = (user) => {
-    showToast(`Password ${user.name} berhasil di-reset!`);
+  const toggleActive = async (user) => {
+    try {
+      await api.users.update(user.id, { isActive: !user.isActive });
+      loadUsers();
+    } catch (err) {
+      showToast(err.message, "warning");
+    }
   };
 
   return (
     <div className="space-y-6">
       {toast && (
-        <div className="fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-xl border bg-success/15 border-success/30 text-success text-sm font-medium animate-in slide-in-from-right">
-          {toast}
+        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-xl border text-sm font-medium animate-in slide-in-from-right ${toast.type === "success" ? "bg-success/15 border-success/30 text-success" : "bg-warning/15 border-warning/30 text-warning"}`}>
+          {toast.msg}
         </div>
       )}
 
@@ -73,38 +106,41 @@ export default function ManajemenUserPage() {
       </div>
 
       {/* User Cards */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {userList.map(user => (
-          <Card key={user.id} className={`border-border/50 ${!user.isActive ? "opacity-60" : ""}`}>
-            <CardContent className="p-5">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className={`w-11 h-11 rounded-full flex items-center justify-center font-bold text-lg ${user.role === "admin" ? "bg-primary/20 text-primary" : "bg-accent text-muted-foreground"}`}>
-                    {user.name.charAt(0)}
+      {loading ? (
+        <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>
+      ) : (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {userList.map(user => (
+            <Card key={user.id} className={`border-border/50 ${!user.isActive ? "opacity-60" : ""}`}>
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-11 h-11 rounded-full flex items-center justify-center font-bold text-lg ${user.role === "admin" ? "bg-primary/20 text-primary" : "bg-accent text-muted-foreground"}`}>
+                      {user.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="font-semibold">{user.name}</p>
+                      <p className="text-xs text-muted-foreground">@{user.username}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-semibold">{user.name}</p>
-                    <p className="text-xs text-muted-foreground">@{user.username}</p>
-                  </div>
+                  <Badge variant={user.isActive ? "secondary" : "outline"} className="text-xs">{user.isActive ? "Aktif" : "Nonaktif"}</Badge>
                 </div>
-                <Badge variant={user.isActive ? "secondary" : "outline"} className="text-xs">{user.isActive ? "Aktif" : "Nonaktif"}</Badge>
-              </div>
-              <div className="flex items-center gap-2 mb-4">
-                <Badge className={user.role === "admin" ? "bg-primary/15 text-primary border-primary/30" : "bg-accent text-muted-foreground"}>
-                  {user.role === "admin" ? "👑 Admin" : "👷 Staff"}
-                </Badge>
-              </div>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" className="flex-1 cursor-pointer text-xs" onClick={() => openEdit(user)}>Edit</Button>
-                <Button variant="outline" size="sm" className="flex-1 cursor-pointer text-xs" onClick={() => resetPassword(user)}>Reset Pass</Button>
-                <Button variant={user.isActive ? "outline" : "default"} size="sm" className="cursor-pointer text-xs" onClick={() => toggleActive(user.id)}>
-                  {user.isActive ? "Off" : "On"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+                <div className="flex items-center gap-2 mb-4">
+                  <Badge className={user.role === "admin" ? "bg-primary/15 text-primary border-primary/30" : "bg-accent text-muted-foreground"}>
+                    {user.role === "admin" ? "👑 Admin" : "👷 Staff"}
+                  </Badge>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" className="flex-1 cursor-pointer text-xs" onClick={() => openEdit(user)}>Edit</Button>
+                  <Button variant={user.isActive ? "outline" : "default"} size="sm" className="cursor-pointer text-xs" onClick={() => toggleActive(user)}>
+                    {user.isActive ? "Nonaktifkan" : "Aktifkan"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -117,7 +153,7 @@ export default function ManajemenUserPage() {
             </div>
             <div className="grid gap-2">
               <Label>Username *</Label>
-              <Input value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} placeholder="Username untuk login" />
+              <Input value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} placeholder="Username untuk login" disabled={!!editUser} />
             </div>
             <div className="grid gap-2">
               <Label>Role *</Label>
@@ -129,12 +165,10 @@ export default function ManajemenUserPage() {
                 </SelectContent>
               </Select>
             </div>
-            {!editUser && (
-              <div className="grid gap-2">
-                <Label>Password *</Label>
-                <Input type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder="Password awal" />
-              </div>
-            )}
+            <div className="grid gap-2">
+              <Label>{editUser ? "Reset Password (Opsional)" : "Password *"}</Label>
+              <Input type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder={editUser ? "Kosongkan jika tidak ingin diubah" : "Password awal"} />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)} className="cursor-pointer">Batal</Button>

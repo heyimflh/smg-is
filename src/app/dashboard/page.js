@@ -1,12 +1,12 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { items, categories, transactions, getLowStockItems, getWarningStockItems, getTotalStockValue, getTodayTransactions, getCategoryName, getUserName, formatCurrency, formatDate, getItemById } from "@/lib/data";
+import { api, formatCurrency, formatDate } from "@/lib/data";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -15,14 +15,41 @@ export default function DashboardPage() {
   const [sortCol, setSortCol] = useState("name");
   const [sortDir, setSortDir] = useState("asc");
 
-  const lowItems = getLowStockItems();
-  const warnItems = getWarningStockItems();
-  const totalValue = getTotalStockValue();
-  const todayTx = getTodayTransactions();
-  const activeItems = items.filter(i => i.isActive);
+  const [stats, setStats] = useState({ totalItems: 0, totalValue: 0, lowStockCount: 0, todayTransactionsCount: 0 });
+  const [items, setItems] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [activity, setActivity] = useState([]);
+  const [top5, setTop5] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const [st, it, ct, ac, t5] = await Promise.all([
+          api.dashboard.stats(),
+          api.items.list(),
+          api.categories.list(),
+          api.dashboard.activity(),
+          api.dashboard.topUsage()
+        ]);
+        if (st) setStats(st);
+        if (it) setItems(it);
+        if (ct) setCategories(ct);
+        if (ac) setActivity(ac);
+        if (t5) setTop5(t5);
+      } catch (err) {
+        console.error("Failed to load dashboard data", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
+
+  const getCategoryName = (id) => categories.find(c => c.id === id)?.name || "Lainnya";
 
   // Filter & sort items
-  let filtered = activeItems.filter(i => {
+  let filtered = items.filter(i => {
     if (catFilter !== "all" && i.categoryId !== parseInt(catFilter)) return false;
     if (search && !i.name.toLowerCase().includes(search.toLowerCase()) && !(i.alias || "").toLowerCase().includes(search.toLowerCase())) return false;
     return true;
@@ -47,12 +74,6 @@ export default function DashboardPage() {
     <svg className="w-3 h-3 inline ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={sortDir === "asc" ? "M5 15l7-7 7 7" : "M19 9l-7 7-7-7"} /></svg>
   ) : null;
 
-  // Top 5 most used items (7 days)
-  const sevenDaysAgo = new Date(Date.now() - 7 * 86400000);
-  const outTx = transactions.filter(t => t.type === "OUT" && new Date(t.createdAt) >= sevenDaysAgo);
-  const usageMap = {};
-  outTx.forEach(t => t.items.forEach(ti => { usageMap[ti.itemId] = (usageMap[ti.itemId] || 0) + ti.qty; }));
-  const top5 = Object.entries(usageMap).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id, qty]) => ({ item: getItemById(parseInt(id)), qty }));
   const maxQty = Math.max(...top5.map(t => t.qty), 1);
 
   const getRowClass = (item) => {
@@ -61,17 +82,21 @@ export default function DashboardPage() {
     return "hover:bg-accent/50";
   };
 
+  if (loading) {
+    return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>;
+  }
+
   return (
     <div className="space-y-6">
       {/* Low stock alert banner */}
-      {lowItems.length > 0 && (
+      {stats.lowStockCount > 0 && (
         <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-4 flex items-center justify-between gap-4 animate-pulse-soft">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-destructive/20 flex items-center justify-center shrink-0">
               <svg className="w-5 h-5 text-destructive" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             </div>
             <div>
-              <p className="font-semibold text-destructive text-sm">⚠️ {lowItems.length} Barang Stok Kritis!</p>
+              <p className="font-semibold text-destructive text-sm">⚠️ {stats.lowStockCount} Barang Stok Kritis!</p>
               <p className="text-xs text-muted-foreground">Beberapa barang sudah di bawah stok minimum</p>
             </div>
           </div>
@@ -94,10 +119,10 @@ export default function DashboardPage() {
       {/* Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: "Total Barang Aktif", value: activeItems.length, icon: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4", color: "text-primary" },
-          { label: "Total Nilai Stok", value: formatCurrency(totalValue), icon: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z", color: "text-success" },
-          { label: "Stok Kritis", value: lowItems.length, icon: "M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z", color: "text-destructive", alert: lowItems.length > 0 },
-          { label: "Transaksi Hari Ini", value: todayTx.length, icon: "M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2", color: "text-blue-400" },
+          { label: "Total Barang Aktif", value: stats.totalItems, icon: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4", color: "text-primary" },
+          { label: "Total Nilai Stok", value: formatCurrency(stats.totalValue), icon: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z", color: "text-success" },
+          { label: "Stok Kritis", value: stats.lowStockCount, icon: "M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z", color: "text-destructive", alert: stats.lowStockCount > 0 },
+          { label: "Transaksi Hari Ini", value: stats.todayTransactionsCount, icon: "M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2", color: "text-blue-400" },
         ].map((stat, i) => (
           <Card key={i} className={`border-border/50 ${stat.alert ? "border-destructive/30" : ""}`}>
             <CardContent className="p-4">
@@ -161,6 +186,11 @@ export default function DashboardPage() {
                       </td>
                     </tr>
                   ))}
+                  {filtered.length === 0 && (
+                    <tr>
+                      <td colSpan="6" className="text-center py-8 text-muted-foreground">Tidak ada data ditemukan</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -176,7 +206,7 @@ export default function DashboardPage() {
               <CardTitle className="text-lg">Aktivitas Terbaru</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {transactions.slice(0, 6).map(tx => (
+              {activity.map(tx => (
                 <div key={tx.id} className="flex items-start gap-3 p-2 rounded-lg hover:bg-accent/50 transition-colors">
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${tx.type === "IN" ? "bg-success/15 text-success" : tx.type === "OUT" ? "bg-destructive/15 text-destructive" : "bg-primary/15 text-primary"}`}>
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -185,10 +215,11 @@ export default function DashboardPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium truncate">{tx.type === "IN" ? "Barang Masuk" : tx.type === "OUT" ? "Barang Keluar" : "Koreksi"} ({tx.items.length} item)</p>
-                    <p className="text-xs text-muted-foreground truncate">{getUserName(tx.createdBy)} • {formatDate(tx.createdAt)}</p>
+                    <p className="text-xs text-muted-foreground truncate">{tx.user?.name || "System"} • {formatDate(tx.createdAt)}</p>
                   </div>
                 </div>
               ))}
+              {activity.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Belum ada aktivitas</p>}
             </CardContent>
           </Card>
 
@@ -202,15 +233,15 @@ export default function DashboardPage() {
               {top5.map((entry, i) => (
                 <div key={i} className="space-y-1">
                   <div className="flex justify-between text-xs">
-                    <span className="truncate font-medium">{entry.item?.alias || entry.item?.name}</span>
-                    <span className="text-muted-foreground shrink-0 ml-2">{entry.qty} {entry.item?.unit}</span>
+                    <span className="truncate font-medium">{entry.name}</span>
+                    <span className="text-muted-foreground shrink-0 ml-2">{entry.qty}</span>
                   </div>
                   <div className="h-2.5 bg-accent rounded-full overflow-hidden">
                     <div className="h-full bg-gradient-to-r from-primary to-amber-light rounded-full animate-grow-up" style={{ width: `${(entry.qty / maxQty) * 100}%` }} />
                   </div>
                 </div>
               ))}
-              {top5.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Belum ada data</p>}
+              {top5.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Belum ada data pemakaian</p>}
             </CardContent>
           </Card>
         </div>
@@ -218,3 +249,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+
