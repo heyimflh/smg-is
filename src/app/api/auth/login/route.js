@@ -8,16 +8,29 @@ export async function POST(request) {
     if (!username || !password) {
       return NextResponse.json({ error: "Username dan password wajib diisi" }, { status: 400 });
     }
-    const user = await authenticateUser(username, password);
+    let user;
+    try {
+      user = await authenticateUser(username, password);
+    } catch (dbErr) {
+      console.error("Database connection error:", dbErr);
+      return NextResponse.json({ 
+        error: "Database Error: Vercel tidak mendukung SQLite. Harap gunakan PostgreSQL (Supabase/Neon) dengan mengatur DATABASE_URL di Vercel Environment Variables. (" + dbErr.message + ")"
+      }, { status: 500 });
+    }
+
     if (!user) {
       return NextResponse.json({ error: "Username atau password salah!" }, { status: 401 });
     }
     const token = createToken(user);
 
-    // Audit log
-    await prisma.auditLog.create({
-      data: { userId: user.id, action: "LOGIN", tableName: "users", recordId: user.id },
-    });
+    // Audit log (Wrap in try-catch so it doesn't block login if DB is read-only)
+    try {
+      await prisma.auditLog.create({
+        data: { userId: user.id, action: "LOGIN", tableName: "users", recordId: user.id },
+      });
+    } catch (auditErr) {
+      console.warn("Gagal mencatat audit log (Mungkin karena database read-only di Vercel):", auditErr.message);
+    }
 
     const response = NextResponse.json({ user, token });
     response.cookies.set("smg_token", token, {
@@ -29,6 +42,7 @@ export async function POST(request) {
     });
     return response;
   } catch (error) {
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    console.error("Login Route Error:", error);
+    return NextResponse.json({ error: "Server error: " + error.message }, { status: 500 });
   }
 }
