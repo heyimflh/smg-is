@@ -12,6 +12,23 @@ import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
+const CustomTooltip = ({ active, payload, label }) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-background/80 backdrop-blur-md border border-border/50 shadow-2xl rounded-xl p-4 min-w-[160px] animate-in zoom-in-95 duration-200">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">{label}</p>
+        <div className="flex items-center gap-3">
+          <div className="w-1 h-6 rounded-full bg-primary" />
+          <p className="text-3xl font-bold text-foreground">
+            {payload[0].value} <span className="text-sm font-normal text-muted-foreground">unit</span>
+          </p>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
 export default function LaporanPage() {
   // Default to last 30 days
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 30), "yyyy-MM-dd"));
@@ -198,22 +215,20 @@ export default function LaporanPage() {
                     <BarChart data={data.topUsage} layout="vertical" margin={{ top: 20, right: 60, left: 10, bottom: 5 }} barSize={36}>
                       <defs>
                         <linearGradient id="colorQty" x1="0" y1="0" x2="1" y2="0">
-                          <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.7}/>
-                          <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={1}/>
+                          <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.7}/>
+                          <stop offset="100%" stopColor="var(--primary)" stopOpacity={1}/>
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="hsl(var(--border))" opacity={0.4} />
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" opacity={0.4} />
                       <XAxis type="number" hide />
-                      <YAxis dataKey="name" type="category" width={110} axisLine={false} tickLine={false} stroke="hsl(var(--foreground))" fontSize={12} tickFormatter={(val) => val.length > 15 ? val.substring(0,15)+'...' : val} />
+                      <YAxis dataKey="name" type="category" width={110} axisLine={false} tickLine={false} stroke="var(--foreground)" fontSize={12} tickFormatter={(val) => val.length > 15 ? val.substring(0,15)+'...' : val} />
                       <Tooltip 
-                        cursor={{fill: 'hsl(var(--accent))', opacity: 0.5, radius: 8}} 
-                        contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)', padding: '12px 16px' }}
-                        itemStyle={{ color: 'hsl(var(--foreground))', fontWeight: 'bold', fontSize: '14px' }}
-                        formatter={(value) => [`${value} Unit`, "Dipakai"]}
-                        labelStyle={{ color: 'hsl(var(--muted-foreground))', marginBottom: '6px', fontSize: '12px' }}
+                        content={<CustomTooltip />}
+                        cursor={{fill: 'var(--accent)', opacity: 0.6, radius: 8}} 
+                        offset={40}
                       />
                       <Bar dataKey="qty" fill="url(#colorQty)" radius={[0, 8, 8, 0]} animationDuration={1500} animationEasing="ease-out">
-                        <LabelList dataKey="qty" position="right" style={{ fill: 'hsl(var(--foreground))', fontSize: '13px', fontWeight: 'bold' }} formatter={(val) => `${val} unit`} />
+                        <LabelList dataKey="qty" position="right" style={{ fill: 'var(--foreground)', fontSize: '13px', fontWeight: 'bold' }} formatter={(val) => `${val} unit`} />
                         {data.topUsage.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={`url(#colorQty)`} />
                         ))}

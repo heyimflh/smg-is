@@ -7,8 +7,9 @@ export async function GET(request, { params }) {
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
+    const resolvedParams = await params;
     const item = await prisma.item.findUnique({
-      where: { id: parseInt(params.id) },
+      where: { id: parseInt(resolvedParams.id) },
       include: { category: true }
     });
     
@@ -24,7 +25,8 @@ export async function PUT(request, { params }) {
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
-    const id = parseInt(params.id);
+    const resolvedParams = await params;
+    const id = parseInt(resolvedParams.id);
     const data = await request.json();
     
     const oldItem = await prisma.item.findUnique({ where: { id } });
@@ -65,7 +67,8 @@ export async function DELETE(request, { params }) {
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
-    const id = parseInt(params.id);
+    const resolvedParams = await params;
+    const id = parseInt(resolvedParams.id);
     const item = await prisma.item.update({
       where: { id },
       data: { isActive: false }

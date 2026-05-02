@@ -42,7 +42,7 @@ export default function BarangKeluarPage() {
   };
 
   const updateItem = (idx, field, value) => {
-    setTxItems(prev => prev.map((ti, i) => i === idx ? { ...ti, [field]: field === "qty" ? (parseInt(value) || 0) : value } : ti));
+    setTxItems(prev => prev.map((ti, i) => i === idx ? { ...ti, [field]: field === "qty" ? (value === "" ? "" : (parseInt(value) || 0)) : value } : ti));
     if (field === "qty") {
       const ti = txItems[idx];
       const newQty = parseInt(value) || 0;
@@ -67,7 +67,7 @@ export default function BarangKeluarPage() {
         notes: "Barang keluar otomatis",
         items: txItems.map(ti => ({
           itemId: ti.itemId,
-          qty: ti.qty,
+          qty: parseInt(ti.qty) || 0,
           priceAtTime: ti.sellPrice,
           description: ti.description
         }))

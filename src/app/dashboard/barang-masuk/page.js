@@ -45,7 +45,7 @@ export default function BarangMasukPage() {
   };
 
   const updateItem = (idx, field, value) => {
-    setTxItems(prev => prev.map((ti, i) => i === idx ? { ...ti, [field]: parseInt(value) || 0 } : ti));
+    setTxItems(prev => prev.map((ti, i) => i === idx ? { ...ti, [field]: value === "" ? "" : (parseInt(value) || 0) } : ti));
   };
 
   const removeItem = (idx) => setTxItems(prev => prev.filter((_, i) => i !== idx));
@@ -62,8 +62,8 @@ export default function BarangMasukPage() {
         notes,
         items: txItems.map(ti => ({
           itemId: ti.itemId,
-          qty: ti.qty,
-          priceAtTime: ti.price
+          qty: parseInt(ti.qty) || 0,
+          priceAtTime: parseInt(ti.price) || 0
         }))
       });
       

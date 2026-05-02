@@ -8,7 +8,8 @@ export async function PUT(request, { params }) {
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
-    const id = parseInt(params.id);
+    const resolvedParams = await params;
+    const id = parseInt(resolvedParams.id);
     const data = await request.json();
     
     const updateData = {
@@ -42,7 +43,8 @@ export async function DELETE(request, { params }) {
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
-    const id = parseInt(params.id);
+    const resolvedParams = await params;
+    const id = parseInt(resolvedParams.id);
     if (id === auth.session.id) {
       return NextResponse.json({ error: "Tidak dapat menonaktifkan diri sendiri" }, { status: 400 });
     }

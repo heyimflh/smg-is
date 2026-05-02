@@ -16,10 +16,10 @@ export async function GET(request) {
       where: {
         isActive: true,
         OR: [
-          { name: { contains: q } },
-          { sku: { contains: q } },
-          { alias: { contains: q } },
-          { category: { name: { contains: q } } }
+          { name: { contains: q, mode: "insensitive" } },
+          { sku: { contains: q, mode: "insensitive" } },
+          { alias: { contains: q, mode: "insensitive" } },
+          { category: { name: { contains: q, mode: "insensitive" } } }
         ]
       },
       include: { category: true },
