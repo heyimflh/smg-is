@@ -82,23 +82,33 @@ async function main() {
   console.log("🌱 Seeding database...");
 
   // Check if already seeded
-  const existingCategories = await prisma.category.count();
-  if (existingCategories > 0) {
-    console.log("Database sudah ter-seed. Skip.");
-    return;
-  }
+  // const existingCategories = await prisma.category.count();
+  // if (existingCategories > 0) {
+  //   console.log("Database sudah ter-seed. Skip.");
+  //   return;
+  // }
 
   // Seed categories
   for (const cat of categories) {
-    await prisma.category.create({ data: cat });
+    await prisma.category.upsert({
+      where: { id: cat.id },
+      update: cat,
+      create: cat,
+    });
   }
   console.log(`✅ ${categories.length} kategori`);
 
   // Seed users with hashed passwords
   for (const u of users) {
     const hash = await bcrypt.hash(u.password, 10);
-    await prisma.user.create({
-      data: {
+    await prisma.user.upsert({
+      where: { username: u.username },
+      update: {
+        name: u.name,
+        role: u.role,
+        isActive: u.isActive !== false,
+      },
+      create: {
         name: u.name,
         username: u.username,
         passwordHash: hash,
@@ -111,8 +121,19 @@ async function main() {
 
   // Seed items
   for (const item of items) {
-    await prisma.item.create({
-      data: {
+    await prisma.item.upsert({
+      where: { sku: item.sku },
+      update: {
+        name: item.name,
+        alias: item.alias,
+        categoryId: item.categoryId,
+        unit: item.unit,
+        buyPrice: item.buyPrice,
+        sellPrice: item.sellPrice,
+        minStock: item.minStock,
+        currentStock: item.currentStock,
+      },
+      create: {
         sku: item.sku,
         name: item.name,
         alias: item.alias,
